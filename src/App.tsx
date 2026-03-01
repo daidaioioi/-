@@ -1,17 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Upload, Settings, Download, RefreshCw, Palette, Info, Grid3X3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { BEAD_PALETTE, BeadColor } from './constants';
+import { BEAD_PALETTE } from './constants';
 import { processImage } from './utils/imageProcessor';
 
-declare global {
-  interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
-}
 
 
 interface PatternData {
@@ -103,98 +95,50 @@ export default function App() {
     });
   };
 
-  const optimizeImage = async (base64Data: string) => {
-    setIsOptimizing(true);
-    try {
-      const resizedBase64 = await resizeImage(base64Data, 768);
-      const imagePart = {
-        inlineData: {
-          data: resizedBase64.split(',')[1],
-          mimeType: 'image/png',
-        },
-      };
-
-      // Step 1: Identify and Search using free Gemini 3 Flash
-      const optimizeImage = async (base64Data: string) => {
+ // Optimize image via server API (no Gemini SDK in frontend)
+     const optimizeImage = async (base64Data: string) => {
   setIsOptimizing(true);
 
   try {
     const resizedBase64 = await resizeImage(base64Data, 768);
-
     const pureBase64 = resizedBase64.split(",")[1];
 
-    const response = await fetch("/api/optimize-image", {
+    const resp = await fetch("/api/optimize-image", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         imageBase64: pureBase64,
         mimeType: "image/png",
       }),
     });
 
-    const result = await response.json();
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`optimize api failed: ${resp.status} ${errText}`);
+    }
 
-    console.log("AI result:", result);
+    const data = await resp.json();
 
-    // 这里根据你的逻辑决定如何处理返回
-    // 如果 AI 只是辅助，不返回图片，可以直接用原图
-    setOptimizedImage(base64Data);
+    // 你后端如果返回的是“优化后的base64图片”，按下面取；否则就退回原图
+    const inline =
+      data?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inline_data || p?.inlineData);
 
-  } catch (error) {
-    console.error("Optimization error:", error);
+    const b64 = inline?.inline_data?.data || inline?.inlineData?.data;
+
+    if (b64) {
+      setOptimizedImage(`data:image/png;base64,${b64}`);
+    } else {
+      // 后端没返回图片，就用原图（不影响拼豆生成）
+      setOptimizedImage(base64Data);
+    }
+  } catch (e) {
+    console.error("Optimization error:", e);
     setOptimizedImage(base64Data);
   } finally {
     setIsOptimizing(false);
   }
 };
 
-      const searchResult = searchResponse.text || "No search results found.";
-
-      // Step 2: Optimize Image using Gemini 2.5 Flash Image with search context
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [
-            imagePart,
-            {
-              text: `Perler bead pattern optimization task.
-              Context from search: ${searchResult}
-              
-              1. Anime/Illustration Pre-processing: Transform the input image into a high-contrast, clean "vector-style" or "smooth illustration". 
-                 - Use bold, clean outlines.
-                 - Replace complex textures and gradients with flat, vibrant color blocks.
-                 - Smooth out all photographic noise and unnecessary details.
-              2. Subject Integrity: Extract the main central figure with 100% completeness. Reconstruct any occluded or missing parts logically.
-              3. Background Removal: Completely remove the background, replacing it with pure white (#FFFFFF).
-              4. Grid Compatibility: Ensure the resulting illustration has sharp edges and distinct colors that will map perfectly to a bead grid.
-              5. Structural Stability: Ensure the subject is a single connected piece.
-              Output: The transformed illustration image only.`,
-            },
-          ],
-        },
-      });
-
-      let newImageUrl = null;
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          newImageUrl = `data:image/png;base64,${part.inlineData.data}`;
-        }
-      }
-
-      if (newImageUrl) {
-        setOptimizedImage(newImageUrl);
-      } else {
-        setOptimizedImage(base64Data);
-      }
-    } catch (error) {
-      console.error("Optimization error:", error);
-      setOptimizedImage(base64Data);
-    } finally {
-      setIsOptimizing(false);
-    }
-  };
 
   useEffect(() => {
     if (image) {
