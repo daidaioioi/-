@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Upload, Settings, Download, RefreshCw, Palette, Info, Grid3X3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BEAD_PALETTE, BeadColor } from './constants';
-import { GoogleGenAI } from "@google/genai";
 import { processImage } from './utils/imageProcessor';
 
 declare global {
@@ -14,7 +13,6 @@ declare global {
   }
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 interface PatternData {
   grid: string[][]; // Array of bead IDs
@@ -117,20 +115,40 @@ export default function App() {
       };
 
       // Step 1: Identify and Search using free Gemini 3 Flash
-      const searchResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            imagePart,
-            {
-              text: "Identify this character/subject. Search for its official Perler bead color palette or pixel art style. Provide a concise description of its main colors and key features.",
-            },
-          ],
-        },
-        config: {
-          tools: [{ googleSearch: {} }]
-        }
-      });
+      const optimizeImage = async (base64Data: string) => {
+  setIsOptimizing(true);
+
+  try {
+    const resizedBase64 = await resizeImage(base64Data, 768);
+
+    const pureBase64 = resizedBase64.split(",")[1];
+
+    const response = await fetch("/api/optimize-image", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        imageBase64: pureBase64,
+        mimeType: "image/png",
+      }),
+    });
+
+    const result = await response.json();
+
+    console.log("AI result:", result);
+
+    // 这里根据你的逻辑决定如何处理返回
+    // 如果 AI 只是辅助，不返回图片，可以直接用原图
+    setOptimizedImage(base64Data);
+
+  } catch (error) {
+    console.error("Optimization error:", error);
+    setOptimizedImage(base64Data);
+  } finally {
+    setIsOptimizing(false);
+  }
+};
 
       const searchResult = searchResponse.text || "No search results found.";
 
